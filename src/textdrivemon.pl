@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-use TextDriveMon::TextDriveMon;
+use ATNF::DriveMon::DriveMon;
 use Curses;
 use Astro::Time;
 use strict;
@@ -17,7 +17,7 @@ if (!$wincoords) {
 &output_headers($wincoords, $win);
 
 # Open a socket to the data.
-my $drivemon = TextDriveMon::TextDriveMon->new();
+my $drivemon = ATNF::DriveMon::DriveMon->new();
 
 while(1) {
     # Grab the data from the socket.

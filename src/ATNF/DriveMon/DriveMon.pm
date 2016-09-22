@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-package TextDriveMon::TextDriveMon;
+package ATNF::DriveMon::DriveMon;
 
 use strict;
 use IO::Socket::INET;
