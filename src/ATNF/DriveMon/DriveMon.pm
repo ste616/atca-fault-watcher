@@ -7,7 +7,7 @@ use IO::Socket::INET;
 require Exporter;
 use base 'Exporter';
 
-# TextDriveMon routine Perl library.
+# DriveMon routine Perl library.
 # Jamie Stevens 2016
 
 # Collection of routines to enable access to the network socket-based

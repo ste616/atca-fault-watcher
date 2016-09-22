@@ -2,11 +2,9 @@
 
 # Query MoniCA for ATCA status and post to Twitter when something goes wrong.
 
-use Net::Twitter;
-use Config::Tiny;
 use File::HomeDir;
+use ATNF::Twitter::Poster;
 use ATNF::MoniCA;
-use POSIX qw/strftime/;
 use Data::Dumper;
 
 use strict;
@@ -31,17 +29,22 @@ my @chkrtns = ( \&chkrtn_cabb_blocks );
 # Get the secret keys.
 my $config_file = File::HomeDir->my_home."/.twitter";
 die "$config_file is missing\n" if not -e $config_file;
-my $config = Config::Tiny->read($config_file, 'utf8');
 
 # Make the Twitter connection.
-my $nt = Net::Twitter->new(
-    ssl => 1,
-    traits => [qw/API::RESTv1_1/],
-    consumer_key => $config->{poster}{api_key},
-    consumer_secret => $config->{poster}{api_secret},
-    access_token => $config->{poster}{access_token},
-    access_token_secret => $config->{poster}{access_token_secret}
+my $twitter = ATNF::Twitter::Poster->new({
+    'config_file' => $config_file
+					 });
+
+# Add the word shortening options.
+my @shrts = ( 
+    [ "temperature", "temp" ], [ "cryogenics", "cryo" ],
+    [ "synthesiser", "synth" ], [ "millimetre", "mm" ],
+    [ "frequency", "freq" ], [ "observations", "obs" ],
+    [ "check", "chk" ], [ "block", "blk" ],
+    [ "correlator", "CABB" ], [ "antenna", "ant" ],
+    [ "high", "hi"], [ "low", "lo" ]
     );
+$twitter->addShort(@shrts);
 
 # We keep track of how many monitors we have (sort of a versioning).
 my $n_monitors = 0;
@@ -82,7 +85,7 @@ for (my $i = 0; $i <= $#allpoint_descriptions; $i++) {
 }
 
 # Tweet that we've started.
-&tweeter($nt, "Monitor started - monitoring $n_monitors points", [ "tmstatus" ]);
+&tweeter($twitter, "Monitor started - monitoring $n_monitors points", [ "tmstatus" ]);
 
 # Disconnect MoniCA.
 monclose($mon);
@@ -119,7 +122,7 @@ while(1) {
 		my $almsg = &alarm_state_changed($alarm_states{$chk_alarms[$i]->point},
 						 $chk_alarms[$i], $mon);
 		if ($almsg->{"message"} ne "") {
-		    &tweeter($nt, $almsg->{"message"}, [ "alarm" ], $almsg->{"change"});
+		    &tweeter($twitter, $almsg->{"message"}, [ "alarm" ], $almsg->{"change"});
 		} elsif ($almsg->{"change"} == $defines{"CODE_WRONG"}) {
 		    # This means our code is wrong.
 		    print "  Tweet could not be constructed due to code error.\n";
@@ -146,7 +149,7 @@ while(1) {
 	# And now make any required tweets.
 	for (my $j = 0; $j <= $#chk_messages; $j++) {
 	    if ($chk_messages[$j]->{"message"} ne "") {
-		&tweeter($nt, $chk_messages[$j]->{"message"}, $chk_messages[$j]->{"tags"});
+		&tweeter($twitter, $chk_messages[$j]->{"message"}, $chk_messages[$j]->{"tags"});
 	    }
 	}
     }
@@ -162,7 +165,7 @@ while(1) {
 END {
     print "\n+++++++++++++++++\n";
     print "Stopping monitor!\n";
-    &tweeter($nt, "Monitor has stopped", [ "tmstatus" ]);
+    &tweeter($twitter, "Monitor has stopped", [ "tmstatus" ]);
 }
 
 sub chkrtn_cabb_blocks {
@@ -409,11 +412,14 @@ sub tweeter {
     # Make a tweet.
     my $tweet = &format_tweet($msg, $type);
 
-    # Output the tweet to the screen, along with its length.
-    printf "**** Tweeting %d char message: \"%s\"\n", length($tweet), $tweet;
+    # Send the tweet.
+    my $omsg = $nt->tweet($tweet);
     
-    # And make the update.
-    $nt->update($tweet);
+    # Output the tweet to the screen, along with its length.
+    printf "**** Tweeting %d char message: \"%s\"\n", length($omsg), $omsg;
+    
+#    # And make the update.
+#    $nt->update($tweet);
 }
 
 sub format_tweet {
@@ -423,9 +429,6 @@ sub format_tweet {
     # Turn some known names into hashtags.
     my @hashtags = ( "CABB" );
 
-    # Make the message lower case (easier for string replacement later).
-    $msg = lc($msg);
-    
     # Add the types as hashtags.
     my $pfx = "";
     for (my $i = 0; $i <= $#{$type}; $i++) {
@@ -434,23 +437,6 @@ sub format_tweet {
 	$pfx .= "#".uc($type->[$i])." ";
     }
     $msg = $pfx.$msg;
-
-    # Strip leading and trailing whitespace.
-    $msg =~ s/^\s+//;
-    $msg =~ s/\s+$//;
-
-    # Turn multiple consecutive whitespace to single.
-    $msg =~ s/\h+/ /g;
-    
-    # Put the time at the start.
-    my $tstring = strftime "%y-%m-%d %R", gmtime;
-    $msg = $tstring." ".$msg;
-    
-    # Check first to see if the message is too long.
-    if (length($msg) > 140) {
-	# We have to cut something out.
-	$msg = &shortener($msg);
-    }
 
     # Add the hashtags.
     for (my $i = 0; $i <= $#hashtags; $i++) {
@@ -463,73 +449,6 @@ sub format_tweet {
 		my $f = $hashtags[$i];
 		my $r = $chk;
 		$msg =~ s/$f/$r/;
-	    }
-	}
-    }
-
-    # Check again if the message is too long.
-    if (length($msg) > 140) {
-	$msg = &shortener($msg);
-    }
-
-    # And now check if we've failed to shorten it enough.
-    if (length($msg) > 140) {
-	# Now we simply truncate.
-	$msg = substr($msg, 0, 140);
-    }
-
-    # Now we turn things back into uppercase.
-    $msg = &uppercasener($msg);
-    
-    return $msg;
-}
-
-sub uppercasener {
-    my $msg = shift;
-
-    # Capitalise all hashtags.
-    $msg =~ s/\#(\w+)/\#\U$1/g;
-
-    # Capitalise all CA0...
-    $msg =~ s/ca0(\d)/CA0$1/g;
-
-    # Capitalise list of words.
-    $msg =~ s/\scabb\s/ CABB /g;
-    $msg =~ s/\srf\s/ RF /g;
-
-    # Capitalise first lower-case letter on the line.
-    $msg =~ s/([a-z])/\u$1/;
-    
-    # Capitalise first letter after full stops.
-    $msg =~ s/\.\s+(\w)/. \u$1/g;
-
-    return $msg;
-}
-
-sub shortener {
-    my $msg = shift;
-
-    # Some words we can shorten and their shortened forms.
-    my @shrts = ( 
-	[ "temperature", "temp" ], [ "cryogenics", "cryo" ],
-	[ "synthesiser", "synth" ], [ "millimetre", "mm" ],
-	[ "frequency", "freq" ], [ "observations", "obs" ],
-	[ "check", "chk" ], [ "block", "blk" ],
-	[ "correlator", "CABB" ], [ "antenna", "ant" ],
-	[ "high", "hi"], [ "low", "lo" ]
-	);
-
-    for (my $i = 0; $i <= $#shrts; $i++) {
-	if (index($msg, $shrts[$i]->[0]) != -1) {
-	    # This string is here.
-	    my $f = $shrts[$i]->[0];
-	    my $r = $shrts[$i]->[1];
-	    $msg =~ s/$f/$r/g;
-
-	    # Have we shortened it enough?
-	    if (length($msg) <= 140) {
-		# Yes we have.
-		last;
 	    }
 	}
     }
