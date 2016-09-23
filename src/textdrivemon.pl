@@ -82,10 +82,11 @@ sub arcseconds_to_string_error {
     my $acs = shift;
 
     my $astring = "";
-    if ($acs < 60) {
+    
+    if (abs($acs) < 60) {
 	# Output in arcseconds.
 	$astring = sprintf("%+.2f\"", $acs);
-    } elsif ($acs < 3600) {
+    } elsif (abs($acs) < 3600) {
 	# Output in arcmins/arcsec.
 	my $adeg = $acs / 3600;
 	my $tstring = deg2str($adeg, 'D', 1, 'deg');

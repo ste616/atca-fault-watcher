@@ -3,6 +3,7 @@
 package ATNF::DriveMon::DriveMon;
 
 use strict;
+use Astro::Time;
 use IO::Socket::INET;
 require Exporter;
 use base 'Exporter';
@@ -59,6 +60,15 @@ sub parseData {
     while ($#els >= 0) {
 	my $ant = shift @els;
 	my $date = shift @els;
+	# Convert the date into the epoch.
+	my $epoch = 0;
+	if ($date =~ /^(....)\-(..)\-(..)\s(..)\:(..)\:(.*)$/) {
+	    my ($year, $month, $date, $hour, $minute, $second) =
+		($1, $2, $3, $4, $5, $6);
+	    my $ut = hms2time($hour, $minute, $second);
+	    my $mjd = cal2mjd($date, $month, $year, $ut);
+	    $epoch = mjd2epoch($mjd);
+	}
 	my $state = $self->antState(shift @els);
 	my $azdeg = shift @els;
 	my $eldeg = shift @els;
@@ -75,7 +85,8 @@ sub parseData {
 			 'azerr' => $azerr, 'elerr' => $elerr,
 			 'azrate' => $azrate, 'elrate' => $elrate,
 			 'azavg' => $azavg, 'elavg' => $elavg,
-			 'azdiff' => $azdiff, 'eldiff' => $eldiff };
+			 'azdiff' => $azdiff, 'eldiff' => $eldiff,
+			 'epoch' => $epoch };
     }
 
     return %odata;
