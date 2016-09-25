@@ -125,8 +125,11 @@ sub tweet {
 	$message = substr($message, 0, 140);
     }
 
-    # And send the tweet.
-    $twitter_connection->update($message);
+    # And send the tweet. We do it with an eval since it
+    # will kill the program otherwise if the message is a
+    # duplicate of the previous one.
+    eval { $twitter_connection->update($message); };
+    warn $@ if $@;
 
     # Return the formatted string.
     return $message;
