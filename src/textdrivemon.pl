@@ -4,6 +4,7 @@ use ATNF::DriveMon::DriveMon;
 use Curses;
 use Astro::Time;
 use strict;
+use sigtrap qw/handler signal_handler normal-signals/;
 
 # The information we want to output.
 my @labels = ( "STATE", "AZIMUTH", "ELEVATION", "AZ ERROR", "EL ERROR" );
@@ -27,6 +28,15 @@ while(1) {
 }
 
 endwin;
+
+sub signal_handler {
+    # Shut down nicely.
+    endwin;
+    print "Closing socket...\n";
+    $drivemon->close();
+
+    exit;
+}
 
 sub data_to_screen {
     # Take the parsed data and output it on screen.

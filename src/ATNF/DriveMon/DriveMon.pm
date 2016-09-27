@@ -22,12 +22,19 @@ our @EXPORT = qw(new);
 
 sub new {
     # Make a new client for the drivemon server.
+    # Fun fact: the md5sum of the string "textdrivemon" is
+    # 52b6507d57a7ebbcfc140c6e5b7070ff, which in decimal is
+    # 109943326206033246331789025388467876095. The "private"
+    # TCP port range starts at 49152 and goes through to 65535.
+    # The first valid port appearing in that decimal number then
+    # is 62060, and that's what we use :)
     my $class = shift;
     my $options = shift || {
-	PeerAddr => 'localhost', PeerPort => 60000
+	PeerAddr => 'localhost', PeerPort => 62060,
+	Timeout => 1
     };
     
-    my $self = {};
+    my $self = { 'socket' => -1 };
     bless $self, $class;
 
     # Try to connect to the server now.
@@ -38,13 +45,43 @@ sub new {
     return $self;
 }
 
+sub isConnected {
+    my $self = shift;
+
+    if ($self->{'socket'} != -1) {
+	return 1;
+    } else {
+	return 0;
+    }
+}
+
+sub close {
+    my $self = shift;
+
+    $self->{'socket'}->shutdown(2);
+
+    return 0;
+}
+
 sub getData {
     my $self = shift;
 
     my $s = $self->{'socket'};
     # Return the latest value on the socket.
-    if (defined $s) {
-	$latest_data_string = <$s>;
+    if ($s != -1) {
+	my $ts = "";
+	my $rb = $s->sysread($ts, 1);
+	if ($rb == 0) {
+	    # We've just received end of file.
+	    $self->{'socket'} = -1;
+	    $latest_data_string = "";
+	} else {
+	    # Data is still coming.
+	    #$s->ungetc($ts);
+	    my $lds = <$s>;
+	    $latest_data_string = $ts.$lds;
+	}
+#	print "==debug $latest_data_string ($rb)\n";
     }
     
     return $self->parseData();
@@ -59,6 +96,9 @@ sub parseData {
     my @els = split(/\t/, $data);
     while ($#els >= 0) {
 	my $ant = shift @els;
+	if ($ant !~ /^ca/) {
+	    next;
+	}
 	my $date = shift @els;
 	# Convert the date into the epoch.
 	my $epoch = 0;
@@ -88,6 +128,7 @@ sub parseData {
 			 'azdiff' => $azdiff, 'eldiff' => $eldiff,
 			 'epoch' => $epoch };
     }
+    $latest_data_string = "";
 
     return %odata;
 }
