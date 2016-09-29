@@ -102,12 +102,14 @@ sub parseData {
 	my $date = shift @els;
 	# Convert the date into the epoch.
 	my $epoch = 0;
+	my $hepoch = 0;
 	if ($date =~ /^(....)\-(..)\-(..)\s(..)\:(..)\:(.*)$/) {
 	    my ($year, $month, $date, $hour, $minute, $second) =
 		($1, $2, $3, $4, $5, $6);
 	    my $ut = hms2time($hour, $minute, $second);
 	    my $mjd = cal2mjd($date, $month, $year, $ut);
 	    $epoch = mjd2epoch($mjd);
+	    $hepoch = $epoch - int($second + 0.5) + $second;
 	}
 	my $state = $self->antState(shift @els);
 	my $azdeg = shift @els;
@@ -126,7 +128,7 @@ sub parseData {
 			 'azrate' => $azrate, 'elrate' => $elrate,
 			 'azavg' => $azavg, 'elavg' => $elavg,
 			 'azdiff' => $azdiff, 'eldiff' => $eldiff,
-			 'epoch' => $epoch };
+			 'epoch' => $epoch, 'htrepoch' => $hepoch };
     }
     $latest_data_string = "";
 
