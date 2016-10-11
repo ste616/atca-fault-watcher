@@ -12,12 +12,29 @@ use PDL::Func;
 use PDL::FFT;
 use Data::Dumper;
 use Curses;
+use PGPLOT;
+use IO::Compress::Gzip;
 
 use strict;
 use sigtrap qw/handler signal_handler normal-signals/;
 
 # The information we want to output.
 my @labels = ( "AZIMUTH", "ELEVATION", "AZ ERROR", "EL ERROR" );
+my @labelparams = ( 'azdeg', 'eldeg', 'azerr', 'elerr' );
+my @screenlines = (
+    { 'params' => [ 'average', 'median' ],
+      'format' => [ "%+7.3f", "%+7.3f" ],
+      'separator' => "/", 'units' => [ '"', '"' ] },
+    { 'params' => [ 'min', 'max' ],
+      'format' => [ "%+7.3f", "%+7.3f" ],
+      'separator' => "/", 'units' => [ '"', '"' ] },
+    { 'params' => [ 'n', 'stdev' ],
+      'format' => [ "%7d", "%+7.3f" ],
+      'separator' => "/", 'units' => [ '', '"' ] },
+    { 'params' => [ 'maxamp', 'maxinterval' ],
+      'format' => [ "%+5.2f", "%7.3f" ],
+      'separator' => "\@", 'units' => [ 'dB', 's' ] } );
+
 
 # Initialise the Twitter connection.
 my $config_file = File::HomeDir->my_home."/.twitter";
@@ -237,18 +254,146 @@ while(1) {
 #			    $ds->{'azdeg'}->{'average'}, $ds->{'eldeg'}->{'average'});
 		    #		    printf ("  average epoch = %.3f\n", $ds->{'htrepoch'}->{'average'});
 		    my $xleft = $wincoords->{'panels'}->[$antnum]->[0];
-		    my $ytop = $wincoords->{'panels'}->[$antnum]->[1] + 1;
-		    my $os = sprintf("%+7.3f\" / %+7.3f\"", 
-				     $ds->{'azdeg'}->{'average'},
-				     $ds->{'azdeg'}->{'median'});
-		    $win->addstr($ytop + 1, $xleft, $os);
+		    for (my $i = 0; $i <= $#labelparams; $i++) {
+			my $ytop = $wincoords->{'panels'}->[$antnum]->[1] + 1 +
+			    ($i * 5);
+			for (my $j = 0; $j <= $#screenlines; $j++) {
+			    my $os = sprintf($screenlines[$j]->{'format'}->[0].
+					     $screenlines[$j]->{'units'}->[0].
+					     " ".$screenlines[$j]->{'separator'}.
+					     " ".$screenlines[$j]->{'format'}->[1].
+					     $screenlines[$j]->{'units'}->[1],
+					     $ds->{$labelparams[$i]}->{$screenlines[$j]->{'params'}->[0]},
+					     $ds->{$labelparams[$i]}->{$screenlines[$j]->{'params'}->[1]});
+			    $win->addstr($ytop + 1, $xleft, $os);
+			    $ytop += 1;
+			}
+		    }
+#		    my $os = sprintf("%+7.3f\" / %+7.3f\"", 
+#				     $ds->{'azdeg'}->{'average'},
+#				     $ds->{'azdeg'}->{'median'});
+#		    $win->addstr($ytop + 1, $xleft, $os);
 		    $win->refresh;
-		} else {
+#		} else {
 #		    print "There has been no tracking within the last minute.\n";
 		}
+		# Make some plots periodically.
+		if (($ctime % 60) == 0) {
+		    # The file name is the antenna and the current time.
+		    my $uant = uc($a);
+		    my $plottime = strftime("%Y-%m-%d_%H%M%S", gmtime($ctime));
+		    my $plotname = "plots/".$uant."_".$plottime.".png/png";
+		    # Begin the plot and write out the meta information.
+		    pgopen($plotname);
+		    my ($x1, $x2, $y1, $y2, $xn);
+		    pgqvp(0, $x1, $x2, $y1, $y2);
+		    my $xn = $x2 - (($x2 - $x1) / 10);
+		    pgsvp($x1, $xn, $y1, $y2);
+		    my @times;
+		    my @azerrs;
+		    my @elerrs;
+		    for (my $i = 0; $i <= $#{$d->{'data'}}; $i++) {
+			if ($d->{'data'}->[$i]->{'pindex'} == 0) {
+			    push @times, $d->{'data'}->[$i]->{'htrepoch'} % 86400;
+			    push @azerrs, $d->{'data'}->[$i]->{'azerr'};
+			    push @elerrs, $d->{'data'}->[$i]->{'elerr'};
+			}
+		    }
+		    my $mintime = $times[0];
+		    my $maxtime = $times[$#times];
+		    my @xs = ($mintime, $maxtime);
+		    my $minerr = -20;
+		    my $maxerr = 20;
+		    my $differr = $maxerr - $minerr;
+
+		    pgswin($mintime, $maxtime, $minerr, $maxerr);
+		    pgsci(1);
+		    pgtbox("BCNTSZ", 0, 0, "BCNTSV", 0, 0);
+		    pglab("Time", "Tracking Error [arcsec]", $uant." ".$plottime.
+			  " (".$ds->{'azerr'}->{'n'}." points)");
+		    my $stitstr = sprintf "Avg az/el = %+.3f / %.3f, freq comp = %.2f dB \@ %.3fs / %.2f dB \@ %.3fs",
+		    $ds->{'azdeg'}->{'average'}, $ds->{'eldeg'}->{'average'},
+		    $ds->{'azerr'}->{'maxamp'}, $ds->{'azerr'}->{'maxinterval'},
+		    $ds->{'elerr'}->{'maxamp'}, $ds->{'elerr'}->{'maxinterval'};
+		    pgsch(0.7);
+		    pgmtxt('T', 0.6, 0, 0, $stitstr);
+
+		    # The azimuth error information.
+		    my $dlw;
+		    pgqlw($dlw);
+		    pgsch(1);
+		    pgsci(2);
+		    my @ys = ($ds->{'azerr'}->{'average'}, $ds->{'azerr'}->{'average'});
+		    my @yps = ($ds->{'azerr'}->{'max'}, $ds->{'azerr'}->{'max'});
+		    my @yms = ($ds->{'azerr'}->{'min'}, $ds->{'azerr'}->{'min'});
+		    pgsls(2);
+		    pgline(2, \@xs, \@ys);
+		    pgsls(3);
+		    pgline(2, \@xs, \@yps);
+		    pgline(2, \@xs, \@yms);
+		    pgsls(1);
+		    pgslw($dlw * 3);
+		    pgline($#times + 1, \@times, \@azerrs);
+		    pgslw($dlw);
+		    my $averrstr = sprintf "%+.3f\"", $ys[0];
+		    pgmtxt('RV', 2, ($ys[0] - $minerr) / $differr, 0.5, $averrstr);
+		    my $rmsstr = sprintf "RMS %.3f\"", $ds->{'azerr'}->{'stdev'};
+		    pgmtxt('RV', 1.5, 0, 0, $rmsstr);
+		    
+		    # The elevation error information.
+		    pgsci(3);
+		    @ys = ($ds->{'elerr'}->{'average'}, $ds->{'elerr'}->{'average'});
+		    @yps = ($ds->{'elerr'}->{'max'}, $ds->{'elerr'}->{'max'});
+		    @yms = ($ds->{'elerr'}->{'min'}, $ds->{'elerr'}->{'min'});
+		    pgsls(2);
+		    pgline(2, \@xs, \@ys);
+		    pgsls(3);
+		    pgline(2, \@xs, \@yps);
+		    pgline(2, \@xs, \@yms);
+		    pgsls(1);
+		    pgslw($dlw * 3);
+		    pgline($#times + 1, \@times, \@elerrs);
+		    pgslw($dlw);
+		    $averrstr = sprintf "%+.3f\"", $ys[0];
+		    pgmtxt('RV', 6, ($ys[0] - $minerr) / $differr, 0.5, $averrstr);
+		    $rmsstr = sprintf "RMS %.3f\"", $ds->{'elerr'}->{'stdev'};
+		    pgmtxt('RV', 1.5, 1, 0, $rmsstr);
+
+		    # End of plot.
+		    pgclos();
+
+		    # Output the data to a compressed log file as well.
+		    my $logname = "logs/".$uant."_".$plottime.".txt.gz";
+		    my $z = new IO::Compress::Gzip $logname;
+		    print $z "antenna: ".$uant."\n";
+		    print $z "endtime: ".$plottime."\n";
+		    print $z "npoints: ".$ds->{'azerr'}->{'n'}."\n";
+		    print $z "statistics:\n";
+		    for (my $i = 0; $i <= $#labelparams; $i++) {
+			print $z $labels[$i]."\n";
+			for (my $j = 0; $j <= $#screenlines; $j++) {
+			    for (my $k = 0; $k <= $#{$screenlines[$j]->{'params'}}; $k++) {
+				printf $z " %s: ".$screenlines[$j]->{'format'}->[$k]."\n",
+				$screenlines[$j]->{'params'}->[$k], $ds->{$labelparams[$i]}->{$screenlines[$j]->{'params'}->[$k]};
+			    }
+			}
+		    }
+		    print $z "data:\n";
+		    my @all_params = (
+			'htrepoch', 'azdeg', 'eldeg', 'azerr', 'elerr',
+			'azrate', 'elrate', 'azavg', 'elavg', 'azdiff', 'eldiff'
+			);
+		    for (my $i = 0; $i <= $#{$d->{'data'}}; $i++) {
+			if ($d->{'data'}->[$i]->{'pindex'} == 0) {
+			    for (my $j = 0; $j <= $#all_params; $j++) {
+				print $z $d->{'data'}->[$i]->{$all_params[$j]}."   ";
+			    }
+			    print $z "\n";
+			}
+		    }
+		    close $z;
+		}
 	    }
-	} else {
-	    $cr_needed = 0;
 	}
     }
 
@@ -384,6 +529,8 @@ sub compute_statistics {
 #    print "[".join(" , ", @fftv)."]\n";
     my @u_fftv;
     my @comps;
+    my $maxamp = 0;
+    my $maxinterval = 0;
     if ($#fftv >= 3) {
 	my $p_fftv = pdl @fftv;
 	realfft($p_fftv);
@@ -409,13 +556,27 @@ sub compute_statistics {
 	    push @comps, [ $amp, ($i + 1) * $deltaf ];
 	    push @acomps, $amp;
 	}
-	# Get the median value of this array, excluding the zero-freq
-	# term.
-	my $medcomp = &median_offset(\@acomps);
-	# We make the median strength the reference, and call it 0 dB.
+#	# Get the median value of this array, excluding the zero-freq
+#	# term.
+#	my $medcomp = &median_offset(\@acomps);
+#	# We make the median strength the reference, and call it 0 dB.
+#	# We thus scale everything with respect to this.
+#	for (my $i = 0; $i <= $#comps; $i++) {
+#	    $comps[$i]->[0] -= $medcomp;
+	#	}
+	# We make the zero-frequency strength the reference, and call it 0 dB.
 	# We thus scale everything with respect to this.
 	for (my $i = 0; $i <= $#comps; $i++) {
-	    $comps[$i]->[0] -= $medcomp;
+	    $comps[$i]->[0] -= $comps[0]->[0];
+	}
+	# Get the largest value that isn't the zero-frequency.
+	$maxamp = $comps[1]->[0];
+	$maxinterval = 1 / $comps[1]->[1];
+	for (my $i = 2; $i <= $#comps; $i++) {
+	    if ($comps[$i]->[0] > $maxamp) {
+		$maxamp = $comps[$i]->[0];
+		$maxinterval = 1 / $comps[$i]->[1];
+	    }
 	}
     }
 
@@ -430,7 +591,7 @@ sub compute_statistics {
     return {
 	'n' => ($#fftv + 1), 'average' => $avg, 'min' => $mnv, 'max' => $mxv,
 	'samples' => \@u_fftv, 'fft' => \@comps, 'median' => $median, 
-	'stdev' => $stdev };
+	'stdev' => $stdev, 'maxamp' => $maxamp, 'maxinterval' => $maxinterval };
 }
 
 sub median_offset {
@@ -579,9 +740,9 @@ sub splitwindow {
     my $pwin = shift;
 
     # The minimum width for each panel.
-    my $min_panel_width = 20;
+    my $min_panel_width = 23;
     # And the maximum required width for each panel.
-    my $max_panel_width = 20;
+    my $max_panel_width = 23;
     
     my %coords;
     # Get the current size of the window.
