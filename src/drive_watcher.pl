@@ -283,12 +283,7 @@ while(1) {
 		    my $uant = uc($a);
 		    my $plottime = strftime("%Y-%m-%d_%H%M%S", gmtime($ctime));
 		    my $plotname = "plots/".$uant."_".$plottime.".png/png";
-		    # Begin the plot and write out the meta information.
-		    pgopen($plotname);
-		    my ($x1, $x2, $y1, $y2, $xn);
-		    pgqvp(0, $x1, $x2, $y1, $y2);
-		    my $xn = $x2 - (($x2 - $x1) / 10);
-		    pgsvp($x1, $xn, $y1, $y2);
+		    # Collect the data.
 		    my @times;
 		    my @azerrs;
 		    my @elerrs;
@@ -301,97 +296,106 @@ while(1) {
 		    }
 		    my $mintime = $times[0];
 		    my $maxtime = $times[$#times];
-		    my @xs = ($mintime, $maxtime);
-		    my $minerr = -20;
-		    my $maxerr = 20;
-		    my $differr = $maxerr - $minerr;
+		    if (($#times > 0) && ($maxtime > $mintime)) {
 
-		    pgswin($mintime, $maxtime, $minerr, $maxerr);
-		    pgsci(1);
-		    pgtbox("BCNTSZ", 0, 0, "BCNTSV", 0, 0);
-		    pglab("Time", "Tracking Error [arcsec]", $uant." ".$plottime.
-			  " (".$ds->{'azerr'}->{'n'}." points)");
-		    my $stitstr = sprintf "Avg az/el = %+.3f / %.3f, freq comp = %.2f dB \@ %.3fs / %.2f dB \@ %.3fs",
-		    $ds->{'azdeg'}->{'average'}, $ds->{'eldeg'}->{'average'},
-		    $ds->{'azerr'}->{'maxamp'}, $ds->{'azerr'}->{'maxinterval'},
-		    $ds->{'elerr'}->{'maxamp'}, $ds->{'elerr'}->{'maxinterval'};
-		    pgsch(0.7);
-		    pgmtxt('T', 0.6, 0, 0, $stitstr);
+			# Begin the plot and write out the meta information.
+			pgopen($plotname);
+			my ($x1, $x2, $y1, $y2, $xn);
+			pgqvp(0, $x1, $x2, $y1, $y2);
+			my $xn = $x2 - (($x2 - $x1) / 10);
+			pgsvp($x1, $xn, $y1, $y2);
+			my @xs = ($mintime, $maxtime);
+			my $minerr = -20;
+			my $maxerr = 20;
+			my $differr = $maxerr - $minerr;
+			
+			pgswin($mintime, $maxtime, $minerr, $maxerr);
+			pgsci(1);
+			pgtbox("BCNTSZ", 0, 0, "BCNTSV", 0, 0);
+			pglab("Time", "Tracking Error [arcsec]", $uant." ".$plottime.
+			      " (".$ds->{'azerr'}->{'n'}." points)");
+			my $stitstr = sprintf "Avg az/el = %+.3f / %.3f, freq comp = %.2f dB \@ %.3fs / %.2f dB \@ %.3fs",
+			$ds->{'azdeg'}->{'average'}, $ds->{'eldeg'}->{'average'},
+			$ds->{'azerr'}->{'maxamp'}, $ds->{'azerr'}->{'maxinterval'},
+			$ds->{'elerr'}->{'maxamp'}, $ds->{'elerr'}->{'maxinterval'};
+			pgsch(0.7);
+			pgmtxt('T', 0.6, 0, 0, $stitstr);
+			
+			# The azimuth error information.
+			my $dlw;
+			pgqlw($dlw);
+			pgsch(1);
+			pgsci(2);
+			my @ys = ($ds->{'azerr'}->{'average'}, $ds->{'azerr'}->{'average'});
+			my @yps = ($ds->{'azerr'}->{'max'}, $ds->{'azerr'}->{'max'});
+			my @yms = ($ds->{'azerr'}->{'min'}, $ds->{'azerr'}->{'min'});
+			pgsls(2);
+			pgline(2, \@xs, \@ys);
+			pgsls(3);
+			pgline(2, \@xs, \@yps);
+			pgline(2, \@xs, \@yms);
+			pgsls(1);
+			pgslw($dlw * 3);
+			pgline($#times + 1, \@times, \@azerrs);
+			pgslw($dlw);
+			my $averrstr = sprintf "%+.3f\"", $ys[0];
+			pgmtxt('RV', 2, ($ys[0] - $minerr) / $differr, 0.5, $averrstr);
+			my $rmsstr = sprintf "RMS %.3f\"", $ds->{'azerr'}->{'stdev'};
+			pgmtxt('RV', 1.5, 0, 0, $rmsstr);
+			
+			# The elevation error information.
+			pgsci(3);
+			@ys = ($ds->{'elerr'}->{'average'}, $ds->{'elerr'}->{'average'});
+			@yps = ($ds->{'elerr'}->{'max'}, $ds->{'elerr'}->{'max'});
+			@yms = ($ds->{'elerr'}->{'min'}, $ds->{'elerr'}->{'min'});
+			pgsls(2);
+			pgline(2, \@xs, \@ys);
+			pgsls(3);
+			pgline(2, \@xs, \@yps);
+			pgline(2, \@xs, \@yms);
+			pgsls(1);
+			pgslw($dlw * 3);
+			pgline($#times + 1, \@times, \@elerrs);
+			pgslw($dlw);
+			$averrstr = sprintf "%+.3f\"", $ys[0];
+			pgmtxt('RV', 6, ($ys[0] - $minerr) / $differr, 0.5, $averrstr);
+			$rmsstr = sprintf "RMS %.3f\"", $ds->{'elerr'}->{'stdev'};
+			pgmtxt('RV', 1.5, 1, 0, $rmsstr);
+			
+			# End of plot.
+			pgclos();
 
-		    # The azimuth error information.
-		    my $dlw;
-		    pgqlw($dlw);
-		    pgsch(1);
-		    pgsci(2);
-		    my @ys = ($ds->{'azerr'}->{'average'}, $ds->{'azerr'}->{'average'});
-		    my @yps = ($ds->{'azerr'}->{'max'}, $ds->{'azerr'}->{'max'});
-		    my @yms = ($ds->{'azerr'}->{'min'}, $ds->{'azerr'}->{'min'});
-		    pgsls(2);
-		    pgline(2, \@xs, \@ys);
-		    pgsls(3);
-		    pgline(2, \@xs, \@yps);
-		    pgline(2, \@xs, \@yms);
-		    pgsls(1);
-		    pgslw($dlw * 3);
-		    pgline($#times + 1, \@times, \@azerrs);
-		    pgslw($dlw);
-		    my $averrstr = sprintf "%+.3f\"", $ys[0];
-		    pgmtxt('RV', 2, ($ys[0] - $minerr) / $differr, 0.5, $averrstr);
-		    my $rmsstr = sprintf "RMS %.3f\"", $ds->{'azerr'}->{'stdev'};
-		    pgmtxt('RV', 1.5, 0, 0, $rmsstr);
-		    
-		    # The elevation error information.
-		    pgsci(3);
-		    @ys = ($ds->{'elerr'}->{'average'}, $ds->{'elerr'}->{'average'});
-		    @yps = ($ds->{'elerr'}->{'max'}, $ds->{'elerr'}->{'max'});
-		    @yms = ($ds->{'elerr'}->{'min'}, $ds->{'elerr'}->{'min'});
-		    pgsls(2);
-		    pgline(2, \@xs, \@ys);
-		    pgsls(3);
-		    pgline(2, \@xs, \@yps);
-		    pgline(2, \@xs, \@yms);
-		    pgsls(1);
-		    pgslw($dlw * 3);
-		    pgline($#times + 1, \@times, \@elerrs);
-		    pgslw($dlw);
-		    $averrstr = sprintf "%+.3f\"", $ys[0];
-		    pgmtxt('RV', 6, ($ys[0] - $minerr) / $differr, 0.5, $averrstr);
-		    $rmsstr = sprintf "RMS %.3f\"", $ds->{'elerr'}->{'stdev'};
-		    pgmtxt('RV', 1.5, 1, 0, $rmsstr);
-
-		    # End of plot.
-		    pgclos();
-
-		    # Output the data to a compressed log file as well.
-		    my $logname = "logs/".$uant."_".$plottime.".txt.gz";
-		    my $z = new IO::Compress::Gzip $logname;
-		    print $z "antenna: ".$uant."\n";
-		    print $z "endtime: ".$plottime."\n";
-		    print $z "npoints: ".$ds->{'azerr'}->{'n'}."\n";
-		    print $z "statistics:\n";
-		    for (my $i = 0; $i <= $#labelparams; $i++) {
-			print $z $labels[$i]."\n";
-			for (my $j = 0; $j <= $#screenlines; $j++) {
-			    for (my $k = 0; $k <= $#{$screenlines[$j]->{'params'}}; $k++) {
-				printf $z " %s: ".$screenlines[$j]->{'format'}->[$k]."\n",
-				$screenlines[$j]->{'params'}->[$k], $ds->{$labelparams[$i]}->{$screenlines[$j]->{'params'}->[$k]};
+			# Output the data to a compressed log file as well.
+			my $logname = "logs/".$uant."_".$plottime.".txt.gz";
+			my $z = new IO::Compress::Gzip $logname;
+			print $z "antenna: ".$uant."\n";
+			print $z "endtime: ".$plottime."\n";
+			print $z "npoints: ".$ds->{'azerr'}->{'n'}."\n";
+			print $z "statistics:\n";
+			for (my $i = 0; $i <= $#labelparams; $i++) {
+			    print $z $labels[$i]."\n";
+			    for (my $j = 0; $j <= $#screenlines; $j++) {
+				for (my $k = 0; $k <= $#{$screenlines[$j]->{'params'}}; $k++) {
+				    printf $z " %s: ".$screenlines[$j]->{'format'}->[$k]."\n",
+				    $screenlines[$j]->{'params'}->[$k], $ds->{$labelparams[$i]}->{$screenlines[$j]->{'params'}->[$k]};
+				}
 			    }
 			}
-		    }
-		    print $z "data:\n";
-		    my @all_params = (
-			'htrepoch', 'azdeg', 'eldeg', 'azerr', 'elerr',
-			'azrate', 'elrate', 'azavg', 'elavg', 'azdiff', 'eldiff'
-			);
-		    for (my $i = 0; $i <= $#{$d->{'data'}}; $i++) {
-			if ($d->{'data'}->[$i]->{'pindex'} == 0) {
-			    for (my $j = 0; $j <= $#all_params; $j++) {
-				print $z $d->{'data'}->[$i]->{$all_params[$j]}."   ";
+			print $z "data:\n";
+			my @all_params = (
+			    'htrepoch', 'azdeg', 'eldeg', 'azerr', 'elerr',
+			    'azrate', 'elrate', 'azavg', 'elavg', 'azdiff', 'eldiff'
+			    );
+			for (my $i = 0; $i <= $#{$d->{'data'}}; $i++) {
+			    if ($d->{'data'}->[$i]->{'pindex'} == 0) {
+				for (my $j = 0; $j <= $#all_params; $j++) {
+				    print $z $d->{'data'}->[$i]->{$all_params[$j]}."   ";
+				}
+				print $z "\n";
 			    }
-			    print $z "\n";
 			}
+			close $z;
 		    }
-		    close $z;
 		}
 	    }
 	}
