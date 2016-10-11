@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+# Script to invoke a text-mode drivemon server for ATCA.
+
+DRIVEMON=atnf.atoms.servo.apps.DriveMonHeadless
+LIBDIR=/home/jstevens/usr/lib
+PORTNUM=62060
+export CLASSPATH=$CLASSPATH:$LIBDIR/atoms.jar:$LIBDIR/chapman.jar
+
+JAVA=$(which java)
+if (( $? )); then
+   echo java not found
+   exit 1
+fi
+
+tcpserver -v localhost $PORTNUM $JAVA -Datoms.site.override=COMPACT_ARRAY $DRIVEMON
