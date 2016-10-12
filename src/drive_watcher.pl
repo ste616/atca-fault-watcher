@@ -74,7 +74,7 @@ for (my $i = 1; $i <= $n_antennas; $i++) {
     $tracking_state{$a} = 0;
 }
 # The number of tracking samples to keep.
-my $nsamples = 1000;
+my $nsamples = 300;
 
 # The number of updates to burn after the antennas begin tracking.
 my $burn_updates = 10;
@@ -284,9 +284,9 @@ while(1) {
 		    my $plottime = strftime("%Y-%m-%d_%H%M%S", gmtime($ctime));
 		    my $plotname = "plots/".$uant."_".$plottime.".png/png";
 		    # Collect the data.
-		    my @times;
-		    my @azerrs;
-		    my @elerrs;
+		    my @times = ();
+		    my @azerrs = ();
+		    my @elerrs = ();
 		    for (my $i = 0; $i <= $#{$d->{'data'}}; $i++) {
 			if ($d->{'data'}->[$i]->{'pindex'} == 0) {
 			    push @times, $d->{'data'}->[$i]->{'htrepoch'} % 86400;
@@ -429,8 +429,8 @@ sub produce_statistics {
 #	'azrate', 'elrate', 'azavg', 'elavg', 'azdiff', 'eldiff'
 	);
     
-    my @stats_list;
-    my @tmp;
+    my @stats_list = ();
+    my @tmp = ();
     my $ci = -1;
     for (my $i = 0; $i <= $#{$aref}; $i++) {
 	if ($ci == -1) {
@@ -481,8 +481,8 @@ sub compute_statistics {
     # Loop 1, get the average, min and max,
     # and make an array for the FFT.
     my $fft_timeres = 0.5; # in seconds.
-    my @prepx;
-    my @prepy;
+    my @prepx = ();
+    my @prepy = ();
     for (my $i = 0; $i <= $#{$aref}; $i++) {
 	push @prepx, $aref->[$i]->{'htrepoch'};
 	push @prepy, $aref->[$i]->{$pname};
@@ -504,7 +504,7 @@ sub compute_statistics {
     my $t0 = $prepx[0];
     my $tl = $prepx[$#prepx];
     my $ct = $t0;
-    my @fftv;
+    my @fftv = ();
     my $interp = PDL::Func->init( x => \@prepx, y => \@prepy );
     while ($ct < $tl) {
 	push @fftv, sclr $interp->interpolate($ct);
@@ -531,8 +531,8 @@ sub compute_statistics {
 
     # Now do the FFT.
 #    print "[".join(" , ", @fftv)."]\n";
-    my @u_fftv;
-    my @comps;
+    my @u_fftv = ();
+    my @comps = ();
     my $maxamp = 0;
     my $maxinterval = 0;
     if ($#fftv >= 3) {
